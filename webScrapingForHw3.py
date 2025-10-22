@@ -11,14 +11,16 @@ def fetch_director(url):
         if response.status_code == 200:
             # Parse the content with BeautifulSoup
             soup = BeautifulSoup(response.text, 'html.parser')
-            print(soup)
+            
             returnBlock[0] = soup.find('h1', class_='celebrity-bio__h1').get_text()
             bioData = soup.find_all('p', class_='celebrity-bio__item')
             birthdate = bioData[2].getText().splitlines()[2].strip().split(' ')
-            print(bioData)
+            
             returnBlock[1] = birthdate[0]
-            returnBlock[2] = birthdate[1]
-            returnBlock[3] = birthdate[2]
+            if 1 < len(birthdate):
+                returnBlock[2] = birthdate[1]
+            if 2 < len(birthdate):
+                returnBlock[3] = birthdate[2]
             
         return returnBlock
     except requests.RequestException as e:
@@ -26,21 +28,30 @@ def fetch_director(url):
 
 def fetch_movie_data(url):
     returnBlock = ["NULL", "NULL"]
-    return returnBlock
     try:
+        response = requests.get(url)
         if response.status_code == 200:
             # Parse the content with BeautifulSoup
             soup = BeautifulSoup(response.text, 'html.parser')
-            print(soup)
-            year = soup.find('section', class_='media-info').find('div', class_='content-wrap').find_all('rt-text', attrs={"data-qa" : "item-value"})
-    
-            x = re.findall(">[0-9]+h [0-9]+m<", str(year))
-            if x:
-                returnBlock[0] = x[0].replace(">", "").replace("<", "")
-    
-            y = re.findall(">[A-Z][a-z][a-z] [0-9]+, [1-2][0-9][0-9][0-9]", str(year))
-            if y:
-                returnBlock[1] = y[0].replace(">", "")
+            dataBlock = soup.find('section', class_='media-info').find('div', class_='content-wrap').find_all('rt-text', attrs={"data-qa" : "item-value"})
+            
+            runTime = re.findall(">[0-9]+h [0-9]+m<", str(dataBlock))
+            if runTime:
+                returnBlock[0] = "'"+ runTime[0].replace(">", "").replace("<", "") + "'"
+            else:
+                runTime = re.findall(">[0-9]+m<", str(dataBlock))
+                if runTime:
+                    returnBlock[0] = "'"+ runTime[0].replace(">", "").replace("<", "") + "'"
+                
+            boxOffice = re.findall('\$[0-9]+.[0-9][KM]', str(dataBlock))
+            if boxOffice:
+                returnBlock[1] = float(boxOffice[0].replace('$', "")[:-1])
+                if (boxOffice[0][-1] == 'K'):
+                    returnBlock[1] = returnBlock[1] * 1000
+                elif (boxOffice[0][-1] == 'M'):
+                    returnBlock[1] = returnBlock[1] * 1000000
+            else:
+                returnBlock[1] = "NULL"
         
             return returnBlock
     except requests.RequestException as e:
@@ -61,19 +72,12 @@ directorsId = 1;
 if response.status_code == 200:
     # Parse the content with BeautifulSoup
     soup = BeautifulSoup(response.text, 'html.parser')
-    #print(soup)
-
-    # Find all books and their prices
-    # row countdown-item
     movies = soup.find_all('div', class_='row countdown-item')
 
-    # Loop through each book and extract the title and price
     for i, movie in enumerate(movies):
         subsection = movie.find('div', class_='article_movie_title')
-        title = subsection.h2.a.get_text()
+        title = subsection.h2.a.get_text().replace("'", "''")
         year = subsection.h2.span.get_text().replace('(', '').replace(')', '')
-        #movieLink = subsection.h2.a['href']
-        print(subsection.h2.a['href'])
         movieData = fetch_movie_data(subsection.h2.a['href'])
             
         
@@ -81,39 +85,44 @@ if response.status_code == 200:
         
         link = movie.find('div', class_='info director')
         directors = link.find_all('a')
-        text = ''
         for director in directors:
-            print("https:" + director['href'])
-            directorData = fetch_director(director['href'])
-            directorsData.append([directorsId, directorData[0], directorData[1], directorData[2], directorData[3]])
-            directedByData.append([i+1, directorsId])
-            directorsId += 1
+            directorData = fetch_director("https:" + director['href'])
+            success = False;
+            for director2 in directorsData:
+                if(not success and director2[1] == directorData[0] and director2[2] == directorData[1] and director2[3] == directorData[2] and director2[4] == directorData[3]):
+                    directedByData.append([i+1, director2[0]])
+                    success = True
+            
+            if (not success):
+                directorsData.append([directorsId, directorData[0], directorData[1], directorData[2], directorData[3]])
+                directedByData.append([i+1, directorsId])
+                directorsId += 1
         
         moviesData.append([i+1, title, year, rating, movieData[0], movieData[1]])
-        #print(f"Movie {i + 1}: {title} - Year: {year} - Rating: {rating} - Link: {text}")
 else:
     print(f"Failed to retrieve the webpage. Status code: {response.status_code}")
 
 print("INSERT INTO movies (movieId, name, releaseYear, rating, runTime, boxOffice) VALUES")
 sliced_list = moviesData[:-1]
 for singleMovie in sliced_list:
-            print(f"({singleMovie[0]}, '{singleMovie[1]}', {singleMovie[2]}, {singleMovie[3]}, '{singleMovie[4]}', {singleMovie[5]}),")
-print(f"({moviesData[-1][0]}, '{moviesData[-1][1]}', {moviesData[-1][2]}, {moviesData[-1][3]}, '{moviesData[-1][4]}', {moviesData[-1][5]});")
-
-#print(f"({moviesData[0][0]}, '{moviesData[0][1]}', {moviesData[0][2]}, {moviesData[0][3]}, '{moviesData[0][4]}', {moviesData[0][5]},")
-#(1, 'testMov', 2000, 74, '1h 44m', 286.5);
-
+    print(f"({singleMovie[0]}, '{singleMovie[1]}', {singleMovie[2]}, {singleMovie[3]}, {singleMovie[4]}, {singleMovie[5]}),")
+print(f"({moviesData[-1][0]}, '{moviesData[-1][1]}', {moviesData[-1][2]}, {moviesData[-1][3]}, {moviesData[-1][4]}, {moviesData[-1][5]});")
 
 print("INSERT INTO directors (directorId, name, month, day, birthYear, favoriteColor) VALUES")
 sliced_list = directorsData[:-1]
 for singleDirector in sliced_list:
-            print(f"({singleDirector[0]}, '{singleDirector[1]}', {singleDirector[2]}, {singleDirector[3]}, '{singleDirector[4]}', NULL),")
-print(f"({directorsData[-1][0]}, '{directorsData[-1][1]}', {directorsData[-1][2]}, {directorsData[-1][3]}, '{directorsData[-1][4]}', NULL);")
-#(1, 'testDir', 'Jan', 12, 2006, 'Aquamarine');
+    if (singleDirector[2] == "Not"):
+        print(f"({singleDirector[0]}, '{singleDirector[1]}', NULL, NULL, NULL, NULL),")
+    else:
+        print(f"({singleDirector[0]}, '{singleDirector[1]}', '{singleDirector[2]}', {singleDirector[3]} {singleDirector[4]}, NULL),")
+        
+if (directorsData[-1][2] == "Not"):
+    print(f"({directorsData[-1][0]}, '{directorsData[-1][1]}', NULL, NULL, NULL, NULL);")
+else:
+    print(f"({directorsData[-1][0]}, '{directorsData[-1][1]}', '{directorsData[-1][2]}', {directorsData[-1][3]} {directorsData[-1][4]}, NULL);")
 
 print("INSERT INTO directedBy (movieId, directorId) VALUES")
 sliced_list = directedByData[:-1]
 for direct in sliced_list:
-            print(f"({direct[0]}, '{direct[1]}'),")
-print(f"({directedByData[-1][0]}, '{directedByData[-1][1]}');")
-#(1, 1);
+    print(f"({direct[0]}, {direct[1]}),")
+print(f"({directedByData[-1][0]}, {directedByData[-1][1]});")
